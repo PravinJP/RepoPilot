@@ -1,9 +1,12 @@
 from fastapi import FastAPI
 
+from app.api.v1.routes.repositories import router as repos_router
 from app.core.config import settings
 from app.core.database import check_connection
 
 app = FastAPI(title=settings.app_name)
+
+app.include_router(repos_router)
 
 
 @app.get("/")
