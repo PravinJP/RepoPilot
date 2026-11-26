@@ -5,6 +5,8 @@ from git import Repo as GitRepo
 from sqlalchemy.orm import Session
 
 from app.ai.ingestion import walk_python_files
+from app.ai.parser import parse_file
+from app.models.code_chunk import CodeChunk
 from app.repositories.repository_repository import RepositoryRepository
 
 CLONE_BASE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "repos"
@@ -35,6 +37,18 @@ class RepositoryService:
                 raise ValueError("No Python files found in repository")
 
             self.repo_repo.add_files(repo_record.id, files)
+
+            all_chunks = []
+            for file_info in files:
+                chunks = parse_file(file_info["path"], str(local_path))
+                for chunk in chunks:
+                    chunk["repository_id"] = repo_record.id
+                    all_chunks.append(chunk)
+
+            if all_chunks:
+                self.db.add_all([CodeChunk(**c) for c in all_chunks])
+                self.db.commit()
+
             updated = self.repo_repo.update_status(
                 repo_record.id,
                 status="ready",
@@ -44,7 +58,6 @@ class RepositoryService:
 
             return {
                 "id": updated.id,
-            
                 "url": updated.url,
                 "status": updated.status,
                 "file_count": updated.file_count,
@@ -54,5 +67,8 @@ class RepositoryService:
         except Exception as e:
             self.repo_repo.update_status(repo_record.id, status="failed")
             if local_path.exists():
-                shutil.rmtree(local_path)
+                try:
+                    shutil.rmtree(local_path)
+                except PermissionError:
+                    pass
             raise RuntimeError(f"Ingestion failed: {e}") from e
